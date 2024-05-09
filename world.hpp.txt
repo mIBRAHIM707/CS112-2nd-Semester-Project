@@ -1,0 +1,16 @@
+#include <SFML/Graphics.hpp>
+
+using namespace sf;
+
+class World : public Drawable{
+    private:
+        Texture image;
+
+        void draw(RenderTarget& target, RenderStates states) const override {
+            target.draw(Sprite(image), states);
+        }
+
+    public:
+        World(Texture& texture) : image(texture){}
+    
+};
