@@ -1,16 +1,55 @@
+#ifndef WORLD_HPP
+#define WORLD_HPP
+
 #include <SFML/Graphics.hpp>
+#include <vector>
 
-using namespace sf;
+#include "enemy.hpp"
+#include "turret.hpp"
 
-class World : public Drawable{
-    private:
-        Texture image;
+class Enemy;
+class Turret;
 
-        void draw(RenderTarget& target, RenderStates states) const override {
-            target.draw(Sprite(image), states);
-        }
+class World {
+public:
+  World(float width, float height, const sf::Texture& mapTexture);
+  virtual ~World() = default;
 
-    public:
-        World(Texture& texture) : image(texture){}
-    
+  bool loadLevel(const std::string& filename);
+  void reset();
+
+  void update(float dt, const std::map<std::string, sf::Texture>& enemyTextures);
+  void draw(sf::RenderTarget& target) const;
+
+  // Player actions
+  void addTurret(std::unique_ptr<Turret> turret);
+  int getMoney() const { return money; }
+  void decreaseMoney(int amount);
+  bool isLevelComplete() const;
+  int getHealth() const { return health; }
+
+private:
+  void processData();
+  void processEnemies();
+  void checkEnemyCollisions();
+
+  float width;
+  float height;
+  sf::Texture mapTexture;
+  std::vector<int> tileMap; // Represents the tile data from the level file
+  int level;
+  std::vector<std::string> enemyList; // List of enemy types to spawn for the current level
+  int spawnedEnemies;
+  std::vector<std::unique_ptr<Enemy>> enemies;
+  std::vector<std::unique_ptr<Turret>> turrets;
+  int money;
+  int health;
+  std::vector<sf::Vector2f> waypoints; // Predefined path for enemies to follow
+
+  // Functions to load level data from JSON (implementation details omitted)
+  bool loadTileMap(const Json::Value& data);
+  bool loadEnemyList(const Json::Value& data);
+  bool loadWaypoints(const Json::Value& data);
 };
+
+#endif // WORLD_HPP
