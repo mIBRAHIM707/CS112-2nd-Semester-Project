@@ -2,19 +2,19 @@
 #include <SFML/Audio.hpp>
 #include <iostream>
 #include <vector>
-#include "Enemy.hpp"
-#include "World.hpp"
-#include "Turret.hpp"
-#include "Button.hpp"
+#include "enemy.hpp"
+#include "world.hpp"
+#include "turret.hpp"
+#include "button.hpp"
 using namespace sf;
 
-// void create_turret(Vector2f mouse_pos, Texture& texture, std::vector<Turret>& turrets){
-//     float mouse_tile_x = mouse_pos.x / 48;
-//     float mouse_tile_y = mouse_pos.y / 48;
-//     float mouse_tile_num = (mouse_tile_y * 15) + mouse_tile_x;
-//     Turret new_turret(texture, mouse_tile_x, mouse_tile_y);
-//     turrets.push_back(new_turret);
-// }
+void create_turret(Vector2f mouse_pos, Texture& texture, std::vector<Turret>& turrets){
+    float mouse_tile_x = mouse_pos.x / 48;
+    float mouse_tile_y = mouse_pos.y / 48;
+    float mouse_tile_num = (mouse_tile_y * 15) + mouse_tile_x;
+    Turret new_turret(texture, mouse_tile_x, mouse_tile_y);
+    turrets.push_back(new_turret);
+}
 
 void create_turret(Vector2f mouse_pos, Texture& texture, std::vector<Turret>& turrets){
     // Calculate tile coordinates
@@ -106,8 +106,156 @@ int main()
             window.draw(turret);
         }
 
+        sf::Text textFont;
+  if (!textFont.loadFromFile("fonts/Consolas.ttf")) {
+    // Handle loading error
+    return 1;
+  }
+  sf::Text largeFont;
+  largeFont.setFont(textFont);
+  largeFont.setCharacterSize(36);
+
+  World world(constants::SCREEN_WIDTH, constants::SCREEN_HEIGHT, mapTexture);
+  if (!world.loadLevel("levels/level.tmj")) {
+    // Handle loading error
+    return 1;
+  }
+
+  // Create sprites and buttons
+  sf::Sprite cursorTurretSprite(cursorTurretTexture);
+
+  std::vector<Button> buttons;
+  buttons.push_back(Button(constants::SCREEN_WIDTH + 30, 120, buyTurretTexture, true));
+  buttons.push_back(Button(constants::SCREEN_WIDTH + 50, 180, cancelTexture, true));
+  buttons.push_back(Button(constants::SCREEN_WIDTH + 5, 180, upgradeTexture, true));
+  buttons.push_back(Button(constants::SCREEN_WIDTH + 60, 300, beginTexture, true));
+  buttons.push_back(Button(310, 300, restartTexture, true));
+  buttons.push_back(Button(constants::SCREEN_WIDTH + 50, 300, fastForwardTexture, false));
+
+  GameState gameState = GameState::Menu;
+  sf::Clock gameClock;
+  bool placingTurrets = false;
+  std::unique_ptr<Turret> selectedTurret; // Use a smart pointer for ownership management
+
+  while (window.isOpen()) {
+    sf::Event event;
+    while (window.pollEvent(event)) {
+      if (event.type == sf::Event::Closed) {
+        window.close();
+      } else if (event.type == sf::Event::MouseButtonPressed && event.mouseButton.button == sf::Mouse::Left) {
+        sf::Vector2i mousePos = sf::Mouse::getPosition(window);
+        if (gameState == GameState::Playing && mousePos.x < constants::SCREEN_WIDTH && mousePos.y < constants::SCREEN_HEIGHT) {
+          if (placingTurrets) {
+            if (world.getMoney() >= constants::BUY_COST) {
+              selectedTurret = std::make_unique<Turret>(turretTextures, mousePos / constants::TILE_SIZE, world.getTileMap(), shotBuffer);
+              world.addTurret(std::move(selectedTurret));
+              world.decreaseMoney(constants::BUY_COST);
+            }
+            placingTurrets = false;
+          } else {
+            selectedTurret.reset(); // Deselect previous turret
+            for (auto& turret : world.getTurrets()) {
+              if (turret->getTilePosition() == mousePos / constants::TILE_SIZE) {
+                selectedTurret = std::make_unique<Turret>(*turret); // Copy constructor for selection
+                break;
+              }
+            }
+          }
+        } else {
+          for (auto& button : buttons) {
+            if (button.handleMouseClick(mousePos)) {
+              if (button.getId() == 0) { // Buy turret button
+                placingTurrets = true;
+              } else if (button.getId() == 1 && gameState == GameState::Playing) { // Cancel button
+                placingTurrets = false;
+              } else if (button.getId() == 2 && gameState == GameState::Playing && selectedTurret && selectedTurret->canUpgrade() && world.getMoney() >= constants::UPGRADE_COST) {
+                selectedTurret->upgrade();
+                world.decreaseMoney(constants::UPGRADE_COST);
+              } else if (button.getId() == 3 && gameState == GameState::Menu) {
+                gameState = GameState::Playing;
+              } else if (button.getId() == 4 && (gameState == GameState::Playing || gameState == GameOver)) {
+                // Restart level
+                world.reset();
+                gameState = GameState::Menu;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    float dt = gameClock.restart().asSeconds();
+
+
         window.display();
     }
+    std :: vector <std :: unique_ptr<Enemy>> enemies;
+    Enemy enemy1(waypoints, enemy_image);
+    enemies.push_back(std :: make_unique<Enemy>(enemy1));
+
+    VertexArray lines(LinesStrip, waypoints.size());
+    for(int i = 0; i < waypoints.size(); i++){
+        lines[i].position = waypoints[i];
+        lines[i].color = Color :: White;
+    }
+void World::update(float dt, const std::map<std::string, sf::Texture>& enemyTextures) {
+  if (gameSpeed > 1.0f) {
+    dt *= gameSpeed;
+  }
+
+  // Update enemies
+  for (auto& enemy : enemies) {
+    enemy->update(dt, waypoints);
+  }
+
+  // Check for collisions and remove dead enemies
+  for (auto it = enemies.begin(); it != enemies.end();) {
+    if (it->get()->isDead()) {
+      increaseMoney(constants::ENEMY_REWARD);
+      it = enemies.erase(it);
+    } else {
+      // Check for collision with player base
+      if (it->get()->getPosition().x <= 0) {
+        health -= it->get()->getDamage();
+        enemies.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
+  // Update turrets
+  for (auto& turret : turrets) {
+    turret->update(dt, enemies);
+  }
+}
+
+void draw(sf::RenderTarget& target) const {
+  // Draw map
+  sf::Sprite mapSprite(mapTexture);
+  target.draw(mapSprite);
+
+  // Draw enemies
+  for (const auto& enemy : enemies) {
+    enemy->draw(target, enemyTextures.at(enemy->getType()));
+  }
+
+  // Draw turrets
+  for (const auto& turret : turrets) {
+    turret->draw(target);
+  }
+
+  // Draw UI elements
+  drawHealthBar(target);
+  drawMoneyBar(target);
+  drawLogo(target);
+
+  if (gameState == GameState::Playing) {
+    if (placingTurrets) {
+      cursorTurretSprite.setPosition(sf::Mouse::getPosition(window) / constants::TILE_SIZE * constants::TILE_SIZE);
+      target.draw(cursorTurretSprite);
+    }
+
 
     return 0;
 }
